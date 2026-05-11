@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: yunxiao_agent
+      POSTGRES_USER: yunxiao
+      POSTGRES_PASSWORD: yunxiao
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yunxiao -d yunxiao_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  flyway:
+    image: flyway/flyway:10
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: -url=jdbc:postgresql://postgres:5432/yunxiao_agent -user=yunxiao -password=yunxiao -connectRetries=60 migrate
+    volumes:
+      - ./infra/db/migration:/flyway/sql:ro
+
+  ingress-service:
+    build:
+      context: ./ingress-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+    environment:
+      HTTP_ADDR: ":8080"
+      POSTGRES_DSN: "postgres://yunxiao:yunxiao@postgres:5432/yunxiao_agent?sslmode=disable"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "yunxiao.events"
+      CODEUP_WEBHOOK_TOKEN: "${CODEUP_WEBHOOK_TOKEN:?CODEUP_WEBHOOK_TOKEN is required}"
+      PROJEX_WEBHOOK_SECRET: "${PROJEX_WEBHOOK_SECRET:?PROJEX_WEBHOOK_SECRET is required}"
+      FLOW_WEBHOOK_TOKEN: "${FLOW_WEBHOOK_TOKEN:?FLOW_WEBHOOK_TOKEN is required}"
+    ports:
+      - "8080:8080"
+
+  orchestrator-service:
+    build:
+      context: ./orchestrator-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: yunxiao
+      POSTGRES_PASSWORD: yunxiao
+      POSTGRES_DATABASE: yunxiao_agent
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "yunxiao.events"
+      RABBITMQ_QUEUES: "orchestrator.pr,orchestrator.pipeline,orchestrator.work_item"
+    ports:
+      - "8081:8081"
+
+volumes:
+  postgres_data:
