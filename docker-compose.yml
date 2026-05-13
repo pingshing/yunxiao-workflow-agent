@@ -46,10 +46,14 @@ services:
       flyway:
         condition: service_completed_successfully
     environment:
+      APP_ENV: "${APP_ENV:-dev}"
       HTTP_ADDR: ":8080"
       POSTGRES_DSN: "postgres://yunxiao:yunxiao@postgres:5432/yunxiao_agent?sslmode=disable"
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
       RABBITMQ_EXCHANGE: "yunxiao.events"
+      RABBITMQ_CONNECT_INITIAL_BACKOFF_SECONDS: "${RABBITMQ_CONNECT_INITIAL_BACKOFF_SECONDS:-1}"
+      RABBITMQ_CONNECT_MAX_BACKOFF_SECONDS: "${RABBITMQ_CONNECT_MAX_BACKOFF_SECONDS:-10}"
+      RABBITMQ_CONNECT_MAX_WAIT_SECONDS: "${RABBITMQ_CONNECT_MAX_WAIT_SECONDS:-60}"
       CODEUP_WEBHOOK_TOKEN: "${CODEUP_WEBHOOK_TOKEN:?CODEUP_WEBHOOK_TOKEN is required}"
       PROJEX_WEBHOOK_SECRET: "${PROJEX_WEBHOOK_SECRET:?PROJEX_WEBHOOK_SECRET is required}"
       FLOW_WEBHOOK_TOKEN: "${FLOW_WEBHOOK_TOKEN:?FLOW_WEBHOOK_TOKEN is required}"
@@ -67,6 +71,7 @@ services:
       flyway:
         condition: service_completed_successfully
     environment:
+      APP_ENV: "${APP_ENV:-dev}"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_USER: yunxiao
@@ -74,7 +79,13 @@ services:
       POSTGRES_DATABASE: yunxiao_agent
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
       RABBITMQ_EXCHANGE: "yunxiao.events"
-      RABBITMQ_QUEUES: "orchestrator.pr,orchestrator.pipeline,orchestrator.work_item"
+      RABBITMQ_QUEUES: "orchestrator.pr,orchestrator.repo,orchestrator.pipeline,orchestrator.work_item"
+      RABBITMQ_CONNECT_INITIAL_BACKOFF_SECONDS: "${RABBITMQ_CONNECT_INITIAL_BACKOFF_SECONDS:-1}"
+      RABBITMQ_CONNECT_MAX_BACKOFF_SECONDS: "${RABBITMQ_CONNECT_MAX_BACKOFF_SECONDS:-10}"
+      RABBITMQ_CONNECT_MAX_WAIT_SECONDS: "${RABBITMQ_CONNECT_MAX_WAIT_SECONDS:-60}"
+      NORMALIZED_EVENT_RETRY_INTERVAL_SECONDS: "${NORMALIZED_EVENT_RETRY_INTERVAL_SECONDS:-30}"
+      NORMALIZED_EVENT_RETRY_BATCH_SIZE: "${NORMALIZED_EVENT_RETRY_BATCH_SIZE:-20}"
+      NORMALIZED_EVENT_MAX_ATTEMPTS: "${NORMALIZED_EVENT_MAX_ATTEMPTS:-5}"
     ports:
       - "8081:8081"
 

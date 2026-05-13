@@ -17,6 +17,7 @@ type Task struct {
 	TaskName     string `json:"taskName"`
 	BuildNumber  string `json:"buildNumber"`
 	StatusCode   string `json:"statusCode"`
+	StatusName   string `json:"statusName"`
 	PipelineURL  string `json:"pipelineUrl"`
 	Message      string `json:"message"`
 }

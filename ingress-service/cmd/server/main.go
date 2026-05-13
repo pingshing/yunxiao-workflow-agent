@@ -15,6 +15,9 @@ import (
 func main() {
 	// 配置
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("invalid config: %v", err)
+	}
 
 	// 数据库
 	db, err := sql.Open("postgres", cfg.PostgresDSN)
@@ -27,8 +30,12 @@ func main() {
 		log.Fatalf("ping postgres: %v", err)
 	}
 
-	// mq生产者
-	publisher, err := mq.NewRabbitPublisher(cfg.RabbitMQURL, cfg.RabbitMQExchange)
+	// MQ 生产者：启动期允许 RabbitMQ 短暂未就绪，避免容器编排抖动导致服务直接退出。
+	publisher, err := mq.NewRabbitPublisherWithRetry(cfg.RabbitMQURL, cfg.RabbitMQExchange, mq.ConnectRetryOptions{
+		InitialBackoff: cfg.RabbitMQConnectInitialBackoff,
+		MaxBackoff:     cfg.RabbitMQConnectMaxBackoff,
+		MaxWait:        cfg.RabbitMQConnectMaxWait,
+	})
 	if err != nil {
 		log.Fatalf("connect rabbitmq: %v", err)
 	}

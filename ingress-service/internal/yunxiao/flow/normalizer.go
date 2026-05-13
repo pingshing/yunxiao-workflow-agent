@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -11,6 +12,9 @@ import (
 
 	"yunxiao-ingress-service/internal/model"
 )
+
+// ErrIgnoredEvent 表示该 Flow 通知合法接收并已保存 raw_event，但当前不进入后续编排。
+var ErrIgnoredEvent = errors.New("ignored flow event")
 
 // Normalize 将 Flow Webhook 通知 payload 转换为内部标准事件。
 func Normalize(payload WebhookPayload, rawPayloadID string, rawBody []byte, traceID string) (model.NormalizedEvent, error) {
@@ -35,12 +39,14 @@ func Normalize(payload WebhookPayload, rawPayloadID string, rawBody []byte, trac
 		"stage_name":      payload.Task.StageName,
 		"task_name":       payload.Task.TaskName,
 		"status_code":     payload.Task.StatusCode,
+		"status_name":     payload.Task.StatusName,
 		"pipeline_url":    payload.Task.PipelineURL,
 		"message":         payload.Task.Message,
 		"repo":            source.Repo,
 		"branch":          source.Branch,
 		"commit_sha":      source.CommitID,
 		"previous_commit": source.PreviousCommitID,
+		"global_params":   globalParamsMap(payload.GlobalParams),
 	}
 
 	return model.NormalizedEvent{
@@ -61,12 +67,18 @@ func mapEventType(statusCode string) (string, error) {
 		return "pipeline.failed", nil
 	case "SUCCESS":
 		return "pipeline.succeeded", nil
+	case "FINISH":
+		return "pipeline.finished", nil
 	case "CANCELED", "CANCELLING":
 		return "pipeline.canceled", nil
 	case "RUNNING", "WAITING":
 		return "pipeline.started", nil
+	case "SKIP":
+		return "pipeline.skipped", nil
+	case "UNKOWN", "UNKNOWN":
+		return "", fmt.Errorf("%w: statusCode %q", ErrIgnoredEvent, statusCode)
 	default:
-		return "", fmt.Errorf("unsupported flow statusCode: %s", statusCode)
+		return "", fmt.Errorf("%w: unsupported statusCode %q", ErrIgnoredEvent, statusCode)
 	}
 }
 
@@ -92,6 +104,16 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func globalParamsMap(params []GlobalParam) map[string]string {
+	values := make(map[string]string, len(params))
+	for _, param := range params {
+		if param.Key != "" {
+			values[param.Key] = param.Value
+		}
+	}
+	return values
 }
 
 // PayloadFromJSON 将请求体解析为 Flow Webhook payload。

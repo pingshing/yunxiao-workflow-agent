@@ -6,11 +6,20 @@ type WebhookPayload struct {
 	ObjectKind       string                  `json:"object_kind"`
 	EventName        string                  `json:"event_name"`
 	ProjectID        int64                   `json:"project_id"`
+	Ref              string                  `json:"ref"`
+	Before           string                  `json:"before"`
+	After            string                  `json:"after"`
+	CheckoutSHA      string                  `json:"checkout_sha"`
 	User             User                    `json:"user"`
+	UserName         string                  `json:"user_name"`
+	UserUsername     string                  `json:"user_username"`
+	UserEmail        string                  `json:"user_email"`
 	Repository       Repository              `json:"repository"`
 	ObjectAttributes MergeRequestAttributes  `json:"object_attributes"`
 	MergeRequest     *MergeRequestAttributes `json:"merge_request"`
 	Commit           *Commit                 `json:"commit"`
+	Commits          []Commit                `json:"commits"`
+	TotalCommits     int64                   `json:"total_commits_count"`
 }
 
 // User 是 Codeup Webhook 中的触发用户。
@@ -33,6 +42,7 @@ type Repository struct {
 // MergeRequestAttributes 是 Codeup 合并请求事件的核心字段。
 type MergeRequestAttributes struct {
 	ID              int64   `json:"id"`
+	IID             int64   `json:"iid"`
 	LocalID         int64   `json:"local_id"`
 	BizID           string  `json:"biz_id"`
 	Title           string  `json:"title"`

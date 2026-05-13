@@ -83,6 +83,139 @@ def save_context_snapshot(
     return snapshot_id
 
 
+def create_agent_run(
+    connection: Connection,
+    task_id: str,
+    event: NormalizedEvent,
+    workflow_type: str,
+    agent_type: str,
+    input_snapshot_id: str,
+    model: str | None = None,
+) -> str:
+    run_id = f"run_{uuid.uuid4()}"
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO agent_run
+              (run_id, task_id, event_id, workflow_type, agent_type, status, model,
+               input_snapshot_id, started_at, created_at, updated_at)
+            VALUES
+              (%s, %s, %s, %s, %s, 'running', %s, %s, %s, %s, %s)
+            """,
+            (
+                run_id,
+                task_id,
+                event["event_id"],
+                workflow_type,
+                agent_type,
+                model,
+                input_snapshot_id,
+                now,
+                now,
+                now,
+            ),
+        )
+    return run_id
+
+
+def mark_agent_run_succeeded(connection: Connection, run_id: str, raw_output: dict[str, Any]) -> None:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE agent_run
+            SET status = 'succeeded',
+                finished_at = %s,
+                raw_output_json = %s::jsonb,
+                updated_at = %s
+            WHERE run_id = %s
+            """,
+            (now, json.dumps(raw_output, ensure_ascii=False), now, run_id),
+        )
+
+
+def mark_agent_run_failed(connection: Connection, run_id: str, error_message: str) -> None:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE agent_run
+            SET status = 'failed',
+                finished_at = %s,
+                error_message = %s,
+                updated_at = %s
+            WHERE run_id = %s
+            """,
+            (now, error_message[:4000], now, run_id),
+        )
+
+
+def save_agent_artifact(
+    connection: Connection,
+    run_id: str,
+    event_id: str,
+    artifact_type: str,
+    artifact: dict[str, Any],
+) -> str:
+    artifact_id = f"artifact_{uuid.uuid4()}"
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO agent_artifact
+              (artifact_id, run_id, event_id, artifact_type, artifact_json, created_at)
+            VALUES
+              (%s, %s, %s, %s, %s::jsonb, %s)
+            """,
+            (
+                artifact_id,
+                run_id,
+                event_id,
+                artifact_type,
+                json.dumps(artifact, ensure_ascii=False),
+                now,
+            ),
+        )
+    return artifact_id
+
+
+def save_agent_actions(
+    connection: Connection,
+    run_id: str,
+    event_id: str,
+    actions: list[dict[str, Any]],
+) -> list[str]:
+    action_ids: list[str] = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with connection.cursor() as cursor:
+        for action in actions:
+            action_id = f"action_{uuid.uuid4()}"
+            cursor.execute(
+                """
+                INSERT INTO agent_action_outbox
+                  (action_id, run_id, event_id, action_type, target_type, target_id,
+                   payload_json, status, attempts, created_at, updated_at)
+                VALUES
+                  (%s, %s, %s, %s, %s, %s, %s::jsonb, 'pending', 0, %s, %s)
+                """,
+                (
+                    action_id,
+                    run_id,
+                    event_id,
+                    action["action_type"],
+                    action["target_type"],
+                    action["target_id"],
+                    json.dumps(action["payload"], ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+            action_ids.append(action_id)
+    return action_ids
+
+
 def mark_task_succeeded(connection: Connection, task_id: str, snapshot_id: str) -> None:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with connection.cursor() as cursor:
@@ -106,4 +239,54 @@ def mark_task_failed(connection: Connection, task_id: str, error_message: str) -
             WHERE task_id = %s
             """,
             (error_message[:4000], now, task_id),
+        )
+
+
+def fetch_retry_candidates(connection: Connection, limit: int, max_attempts: int) -> list[dict[str, Any]]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT event_id, source, event_type, occurred_at, trace_id, dedup_key, project_id, work_item_id,
+                   subject_type, subject_id, external_refs_json, raw_event_id, publish_status, publish_attempts
+            FROM normalized_event
+            WHERE publish_status IN ('pending', 'failed')
+              AND publish_attempts < %s
+            ORDER BY created_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT %s
+            """,
+            (max_attempts, limit),
+        )
+        return list(cursor.fetchall())
+
+
+def mark_publish_retry_succeeded(connection: Connection, event_id: str) -> None:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE normalized_event
+            SET publish_status = 'published',
+                published_at = %s,
+                last_publish_error = NULL,
+                last_publish_attempt_at = %s
+            WHERE event_id = %s
+            """,
+            (now, now, event_id),
+        )
+
+
+def mark_publish_retry_failed(connection: Connection, event_id: str, error_message: str, max_attempts: int) -> None:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE normalized_event
+            SET publish_attempts = publish_attempts + 1,
+                last_publish_error = %s,
+                last_publish_attempt_at = %s,
+                publish_status = 'failed'
+            WHERE event_id = %s
+            """,
+            (error_message[:4000], now, event_id),
         )
